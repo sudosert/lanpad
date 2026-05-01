@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>lanpad</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <h1>lanpad</h1>
+    <div class="status" id="status">idle</div>
+  </header>
+
+  <main class="layout">
+    <section class="pane notes">
+      <div class="pane-head">
+        <h2>shared notepad</h2>
+        <span class="hint" id="notes-hint">auto-saves &amp; auto-syncs</span>
+      </div>
+      <textarea id="notes" placeholder="Start typing… everyone on the LAN sees this."></textarea>
+    </section>
+
+    <section class="pane files">
+      <div class="pane-head">
+        <h2>files &amp; images</h2>
+        <span class="hint">drop anywhere · max {{ max_upload_mb }} MB each</span>
+      </div>
+
+      <div id="dropzone" class="dropzone">
+        <input type="file" id="file-input" multiple hidden>
+        <button type="button" id="pick-btn" class="pick-btn">Choose files</button>
+        <div class="dz-text">or drag &amp; drop here</div>
+        <div id="upload-progress" class="progress"></div>
+      </div>
+
+      <ul id="file-list" class="file-list"></ul>
+    </section>
+  </main>
+
+  <div id="lightbox" class="lightbox hidden" role="dialog" aria-modal="true">
+    <img id="lightbox-img" alt="">
+    <button id="lightbox-close" aria-label="Close">&times;</button>
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

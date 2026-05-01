@@ -1,0 +1,12 @@
+services:
+  lanpad:
+    build: .
+    image: lanpad:latest
+    container_name: lanpad
+    restart: unless-stopped
+    ports:
+      - "7777:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      - LANPAD_MAX_UPLOAD_MB=200
