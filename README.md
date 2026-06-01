@@ -33,7 +33,7 @@ a URL.
 ## Running it
 
 ```bash
-git clone ssh://git@10.0.0.199:2222/aodhan/lanpad.git
+git clone git@github.com:sudosert/lanpad.git
 cd lanpad
 docker compose up -d --build
 ```
@@ -96,7 +96,7 @@ Flask serves a single page and a small JSON API.
   active tab and cursor. A `beforeunload`/`pagehide` `sendBeacon` flush guards
   the last keystrokes inside the debounce window.
 
-```
+```text
 lanpad/
 ├── app.py              # Flask app + JSON API
 ├── templates/
@@ -124,3 +124,7 @@ everything.
 
 If sensitive data starts living here, put it behind a reverse proxy with basic
 auth or use a different tool.
+
+## License
+
+[MIT](LICENSE) © Aodhan Collins
