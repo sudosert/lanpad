@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>lanpad</title>
+  <title>LANpad</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -16,7 +17,17 @@
     <section class="pane notes">
       <div class="pane-head">
         <h2>shared notepad</h2>
-        <span class="hint" id="notes-hint">auto-saves &amp; auto-syncs</span>
+        <div class="head-actions">
+          <button type="button" id="copy-btn" class="btn">Copy</button>
+          <button type="button" id="paste-btn" class="btn">Paste</button>
+          <button type="button" id="clear-notes-btn" class="btn danger">Clear Tab</button>
+          <button type="button" id="clear-tabs-btn" class="btn danger">Clear All Tabs</button>
+          <span class="hint" id="notes-hint">auto-saves &amp; auto-syncs</span>
+        </div>
+      </div>
+      <div class="tabbar" id="tabbar" role="tablist">
+        <div class="tabs" id="tabs"></div>
+        <button type="button" id="add-tab-btn" class="tab-add" title="New tab" aria-label="New tab">+</button>
       </div>
       <textarea id="notes" placeholder="Start typing… everyone on the LAN sees this."></textarea>
     </section>
@@ -24,7 +35,10 @@
     <section class="pane files">
       <div class="pane-head">
         <h2>files &amp; images</h2>
-        <span class="hint">drop anywhere · max {{ max_upload_mb }} MB each</span>
+        <div class="head-actions">
+          <button type="button" id="clear-files-btn" class="btn danger">Clear files</button>
+          <span class="hint">drop anywhere · max {{ max_upload_mb }} MB each</span>
+        </div>
       </div>
 
       <div id="dropzone" class="dropzone">

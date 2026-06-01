@@ -10,14 +10,45 @@
   const lightbox = $("lightbox");
   const lightboxImg = $("lightbox-img");
   const lightboxClose = $("lightbox-close");
+  const copyBtn = $("copy-btn");
+  const pasteBtn = $("paste-btn");
+  const clearNotesBtn = $("clear-notes-btn");
+  const clearTabsBtn = $("clear-tabs-btn");
+  const clearFilesBtn = $("clear-files-btn");
+  const tabsEl = $("tabs");
+  const addTabBtn = $("add-tab-btn");
 
   const POLL_MS = 2000;
   const SAVE_DEBOUNCE_MS = 500;
+  const MAX_TABS = 30;
 
   let lastNotesMtime = 0;
   let localDirty = false;
   let saveTimer = null;
   let suppressInputUntil = 0;
+
+  // Multi-tab notepad state. Only the active tab's content is shown in the
+  // textarea; tabs[].content holds the rest. The whole array is what we save.
+  let tabs = [];
+  let activeTabId = null;
+  let dragId = null;
+
+  function newTabId() {
+    return (
+      Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+    );
+  }
+
+  function activeTab() {
+    return tabs.find((t) => t.id === activeTabId) || null;
+  }
+
+  // Pull whatever is in the textarea back into the active tab object so the
+  // model stays the source of truth before we save / switch / re-render.
+  function syncActiveFromTextarea() {
+    const t = activeTab();
+    if (t) t.content = notesEl.value;
+  }
 
   function setStatus(text, cls = "") {
     statusEl.textContent = text;
@@ -49,7 +80,7 @@
     const frag = document.createDocumentFragment();
     for (const f of files) {
       const li = document.createElement("li");
-      li.className = "file-row";
+      li.className = "file-row" + (f.locked ? " locked" : "");
       li.dataset.id = f.id;
 
       const thumb = document.createElement("div");
@@ -86,12 +117,20 @@
       dl.className = "btn";
       dl.href = `/files/${f.id}?dl=1`;
       dl.textContent = "Download";
-      const del = document.createElement("button");
-      del.className = "btn danger";
-      del.textContent = "Delete";
-      del.addEventListener("click", () => deleteFile(f.id, f.name));
+      const lock = document.createElement("button");
+      lock.className = "btn" + (f.locked ? " locked" : "");
+      lock.textContent = f.locked ? "🔒 Locked" : "🔓 Lock";
+      lock.title = f.locked ? "Unlock — allow clearing" : "Lock — protect from clearing";
+      lock.addEventListener("click", () => toggleFileLock(f.id, !f.locked));
       actions.appendChild(dl);
-      actions.appendChild(del);
+      actions.appendChild(lock);
+      if (!f.locked) {
+        const del = document.createElement("button");
+        del.className = "btn danger";
+        del.textContent = "Delete";
+        del.addEventListener("click", () => deleteFile(f.id, f.name));
+        actions.appendChild(del);
+      }
 
       li.appendChild(thumb);
       li.appendChild(meta);
@@ -101,23 +140,226 @@
     fileListEl.replaceChildren(frag);
   }
 
+  function renderTabs() {
+    const frag = document.createDocumentFragment();
+    for (const t of tabs) {
+      const tab = document.createElement("div");
+      tab.className =
+        "tab" + (t.id === activeTabId ? " active" : "") + (t.locked ? " locked" : "");
+      tab.dataset.id = t.id;
+      tab.setAttribute("role", "tab");
+      tab.draggable = true;
+      tab.title = "Click to switch · double-click to rename · drag to reorder";
+
+      tab.addEventListener("dragstart", (e) => {
+        dragId = t.id;
+        tab.classList.add("dragging");
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = "move";
+          // Firefox needs data set for the drag to start.
+          try { e.dataTransfer.setData("text/plain", t.id); } catch {}
+        }
+      });
+      tab.addEventListener("dragend", () => {
+        dragId = null;
+        tab.classList.remove("dragging");
+        tabsEl.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
+      });
+      tab.addEventListener("dragover", (e) => {
+        if (!dragId || dragId === t.id) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        tab.classList.add("drag-over");
+      });
+      tab.addEventListener("dragleave", () => tab.classList.remove("drag-over"));
+      tab.addEventListener("drop", (e) => {
+        e.preventDefault();
+        tab.classList.remove("drag-over");
+        reorderTab(dragId, t.id);
+      });
+
+      const lock = document.createElement("button");
+      lock.className = "tab-lock" + (t.locked ? " on" : "");
+      lock.type = "button";
+      lock.textContent = t.locked ? "🔒" : "🔓";
+      lock.title = t.locked ? "Unlock — allow clearing" : "Lock — protect from clearing";
+      lock.setAttribute("aria-label", (t.locked ? "Unlock " : "Lock ") + t.name);
+      lock.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleTabLock(t.id);
+      });
+      tab.appendChild(lock);
+
+      const label = document.createElement("span");
+      label.className = "tab-name";
+      label.textContent = t.name;
+      tab.appendChild(label);
+
+      if (!t.locked) {
+        const close = document.createElement("button");
+        close.className = "tab-close";
+        close.type = "button";
+        close.textContent = "×";
+        close.title = "Close tab";
+        close.setAttribute("aria-label", `Close ${t.name}`);
+        close.addEventListener("click", (e) => {
+          e.stopPropagation();
+          closeTab(t.id);
+        });
+        tab.appendChild(close);
+      }
+
+      tab.addEventListener("click", () => switchTab(t.id));
+      tab.addEventListener("dblclick", (e) => {
+        e.preventDefault();
+        renameTab(t.id);
+      });
+      frag.appendChild(tab);
+    }
+    tabsEl.replaceChildren(frag);
+    addTabBtn.disabled = tabs.length >= MAX_TABS;
+  }
+
+  // Reflect the active tab's content into the textarea, optionally trying to
+  // preserve the caret (used during background sync so typing isn't jarring).
+  function showActiveTab(preserveCaret = false) {
+    const t = activeTab();
+    const text = t ? t.content : "";
+    const cursor =
+      preserveCaret && document.activeElement === notesEl
+        ? notesEl.selectionStart
+        : null;
+    suppressInputUntil = Date.now() + 50;
+    notesEl.value = text;
+    if (cursor !== null) {
+      const pos = Math.min(cursor, text.length);
+      notesEl.setSelectionRange(pos, pos);
+    }
+  }
+
+  function switchTab(id) {
+    if (id === activeTabId) return;
+    syncActiveFromTextarea();
+    activeTabId = id;
+    renderTabs();
+    showActiveTab(false);
+    notesEl.focus();
+  }
+
+  // Move the dragged tab so it sits immediately before the drop target.
+  function reorderTab(srcId, targetId) {
+    if (!srcId || srcId === targetId) return;
+    syncActiveFromTextarea();
+    const from = tabs.findIndex((t) => t.id === srcId);
+    if (from < 0) return;
+    const [moved] = tabs.splice(from, 1);
+    const to = tabs.findIndex((t) => t.id === targetId);
+    if (to < 0) {
+      tabs.splice(from, 0, moved); // target vanished — put it back
+      return;
+    }
+    tabs.splice(to, 0, moved);
+    renderTabs();
+    saveNow();
+  }
+
+  function addTab() {
+    if (tabs.length >= MAX_TABS) {
+      flashStatus("tab limit reached", "error");
+      return;
+    }
+    syncActiveFromTextarea();
+    const t = { id: newTabId(), name: nextTabName(), content: "", locked: false };
+    tabs.push(t);
+    activeTabId = t.id;
+    renderTabs();
+    showActiveTab(false);
+    notesEl.focus();
+    saveNow();
+  }
+
+  function nextTabName() {
+    let n = tabs.length + 1;
+    const names = new Set(tabs.map((t) => t.name));
+    while (names.has("Tab " + n)) n++;
+    return "Tab " + n;
+  }
+
+  function renameTab(id) {
+    const t = tabs.find((x) => x.id === id);
+    if (!t) return;
+    const name = prompt("Rename tab:", t.name);
+    if (name === null) return;
+    t.name = name.trim().slice(0, 60) || t.name;
+    renderTabs();
+    saveNow();
+  }
+
+  function toggleTabLock(id) {
+    const t = tabs.find((x) => x.id === id);
+    if (!t) return;
+    t.locked = !t.locked;
+    renderTabs();
+    saveNow();
+    flashStatus(t.locked ? "tab locked" : "tab unlocked");
+  }
+
+  function closeTab(id) {
+    const t = tabs.find((x) => x.id === id);
+    if (t && t.locked) {
+      flashStatus("tab is locked", "error");
+      return;
+    }
+    if (tabs.length <= 1) {
+      flashStatus("can't close the last tab", "error");
+      return;
+    }
+    if (t && t.content.trim() && !confirm(`Close "${t.name}"? Its contents will be lost.`)) {
+      return;
+    }
+    syncActiveFromTextarea();
+    const idx = tabs.findIndex((x) => x.id === id);
+    tabs = tabs.filter((x) => x.id !== id);
+    if (activeTabId === id) {
+      const next = tabs[Math.min(idx, tabs.length - 1)];
+      activeTabId = next ? next.id : null;
+    }
+    renderTabs();
+    showActiveTab(false);
+    saveNow();
+  }
+
+  // Replace local tab state from a server payload, keeping the active tab
+  // selected if it still exists.
+  function adoptTabs(serverTabs) {
+    tabs = (serverTabs || []).map((t) => ({
+      id: t.id,
+      name: t.name,
+      content: t.content || "",
+      locked: !!t.locked,
+    }));
+    if (!tabs.length) {
+      tabs = [{ id: newTabId(), name: "Tab 1", content: "", locked: false }];
+    }
+    if (!tabs.some((t) => t.id === activeTabId)) {
+      activeTabId = tabs[0].id;
+    }
+    renderTabs();
+  }
+
   async function fetchState() {
     try {
       const r = await fetch("/api/state", { cache: "no-store" });
       if (!r.ok) throw new Error("state " + r.status);
       const s = await r.json();
       if (!localDirty && s.notes_mtime !== lastNotesMtime) {
-        const cursor = document.activeElement === notesEl ? notesEl.selectionStart : null;
-        suppressInputUntil = Date.now() + 50;
-        notesEl.value = s.notes;
-        if (cursor !== null) {
-          const pos = Math.min(cursor, s.notes.length);
-          notesEl.setSelectionRange(pos, pos);
-        }
+        adoptTabs(s.tabs);
+        showActiveTab(true);
         lastNotesMtime = s.notes_mtime;
       } else if (lastNotesMtime === 0) {
         lastNotesMtime = s.notes_mtime;
-        notesEl.value = s.notes;
+        adoptTabs(s.tabs);
+        showActiveTab(false);
       }
       renderFiles(s.files);
     } catch (e) {
@@ -127,12 +369,13 @@
 
   async function saveNotes() {
     saveTimer = null;
+    syncActiveFromTextarea();
     setStatus("saving…", "saving");
     try {
       const r = await fetch("/api/notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notes: notesEl.value }),
+        body: JSON.stringify({ tabs }),
       });
       if (!r.ok) throw new Error("save " + r.status);
       const s = await r.json();
@@ -147,6 +390,17 @@
     }
   }
 
+  // Save immediately (no debounce) — for structural changes like adding,
+  // renaming, closing or clearing tabs that other clients should see fast.
+  function saveNow() {
+    localDirty = true;
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    return saveNotes();
+  }
+
   notesEl.addEventListener("input", () => {
     if (Date.now() < suppressInputUntil) return;
     localDirty = true;
@@ -154,6 +408,146 @@
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(saveNotes, SAVE_DEBOUNCE_MS);
   });
+
+  // Flush a pending debounced save before the tab closes so the last
+  // few characters typed inside the debounce window can't be lost.
+  function flushPendingSave() {
+    if (!localDirty) return;
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    try {
+      syncActiveFromTextarea();
+      const blob = new Blob(
+        [JSON.stringify({ tabs })],
+        { type: "application/json" }
+      );
+      navigator.sendBeacon("/api/notes", blob);
+      localDirty = false;
+    } catch {
+      // best-effort only
+    }
+  }
+  window.addEventListener("beforeunload", flushPendingSave);
+  window.addEventListener("pagehide", flushPendingSave);
+
+  async function flashStatus(text, cls = "saved", revertMs = 1200) {
+    setStatus(text, cls);
+    setTimeout(() => {
+      if (statusEl.textContent === text) setStatus("synced");
+    }, revertMs);
+  }
+
+  async function doCopy() {
+    const text = notesEl.value;
+    let ok = false;
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      } catch {}
+    }
+    if (!ok) {
+      // Fallback for plain-HTTP LAN access where the async clipboard API
+      // is blocked: select the textarea contents and trigger a copy.
+      const prevStart = notesEl.selectionStart;
+      const prevEnd = notesEl.selectionEnd;
+      notesEl.focus();
+      notesEl.select();
+      try {
+        ok = document.execCommand("copy");
+      } catch {
+        ok = false;
+      }
+      notesEl.setSelectionRange(prevStart, prevEnd);
+    }
+    flashStatus(ok ? "copied" : "copy failed", ok ? "saved" : "error");
+  }
+
+  async function doPaste() {
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      flashStatus("paste needs HTTPS — use Ctrl+V", "error", 2400);
+      notesEl.focus();
+      return;
+    }
+    let text;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      flashStatus("paste blocked — use Ctrl+V", "error", 2400);
+      notesEl.focus();
+      return;
+    }
+    const start = notesEl.selectionStart ?? notesEl.value.length;
+    const end = notesEl.selectionEnd ?? notesEl.value.length;
+    notesEl.value =
+      notesEl.value.slice(0, start) + text + notesEl.value.slice(end);
+    const caret = start + text.length;
+    notesEl.setSelectionRange(caret, caret);
+    notesEl.focus();
+    localDirty = true;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNotes, SAVE_DEBOUNCE_MS);
+    flashStatus("pasted");
+  }
+
+  async function clearNotes() {
+    const t = activeTab();
+    if (!t) return;
+    if (t.locked) {
+      flashStatus("tab is locked", "error");
+      return;
+    }
+    if (!notesEl.value) return;
+    if (!confirm(`Clear the "${t.name}" tab for everyone?`)) return;
+    notesEl.value = "";
+    t.content = "";
+    await saveNow();
+    flashStatus("tab cleared");
+  }
+
+  async function clearAllTabs() {
+    syncActiveFromTextarea();
+    const locked = tabs.filter((t) => t.locked);
+    const msg = locked.length
+      ? `Clear all unlocked tabs for everyone? ${locked.length} locked tab(s) are kept.`
+      : "Clear ALL tabs for everyone? This deletes every tab and its contents.";
+    if (!confirm(msg)) return;
+    tabs = locked.length
+      ? locked
+      : [{ id: newTabId(), name: "Tab 1", content: "", locked: false }];
+    if (!tabs.some((t) => t.id === activeTabId)) {
+      activeTabId = tabs[0].id;
+    }
+    renderTabs();
+    showActiveTab(false);
+    await saveNow();
+    flashStatus(locked.length ? "unlocked tabs cleared" : "all tabs cleared");
+    notesEl.focus();
+  }
+
+  async function clearAllFiles() {
+    if (!confirm("Delete all UNLOCKED files? Locked files are kept. This can't be undone.")) return;
+    try {
+      const r = await fetch("/api/files", { method: "DELETE" });
+      if (!r.ok) throw new Error("clear " + r.status);
+      const j = await r.json();
+      if (j.files) renderFiles(j.files);
+      else fetchState();
+      const kept = j.kept ? `, kept ${j.kept} locked` : "";
+      flashStatus(`removed ${j.removed ?? 0} file(s)${kept}`);
+    } catch {
+      flashStatus("clear failed", "error");
+    }
+  }
+
+  copyBtn.addEventListener("click", doCopy);
+  pasteBtn.addEventListener("click", doPaste);
+  clearNotesBtn.addEventListener("click", clearNotes);
+  clearTabsBtn.addEventListener("click", clearAllTabs);
+  clearFilesBtn.addEventListener("click", clearAllFiles);
+  addTabBtn.addEventListener("click", addTab);
 
   pickBtn.addEventListener("click", () => fileInput.click());
   fileInput.addEventListener("change", () => {
@@ -236,10 +630,26 @@
   async function deleteFile(id, name) {
     if (!confirm(`Delete "${name}"?`)) return;
     const r = await fetch(`/api/files/${id}`, { method: "DELETE" });
-    if (r.ok) {
+    const j = await r.json().catch(() => ({}));
+    if (j.files) renderFiles(j.files);
+    else fetchState();
+    if (!r.ok) flashStatus(j.error || "delete failed", "error");
+  }
+
+  async function toggleFileLock(id, locked) {
+    try {
+      const r = await fetch(`/api/files/${id}/lock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locked }),
+      });
+      if (!r.ok) throw new Error("lock " + r.status);
       const j = await r.json();
       if (j.files) renderFiles(j.files);
       else fetchState();
+      flashStatus(locked ? "file locked" : "file unlocked");
+    } catch {
+      flashStatus("lock failed", "error");
     }
   }
 

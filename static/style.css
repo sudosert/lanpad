@@ -82,10 +82,114 @@ html, body {
   letter-spacing: 0.8px;
   color: var(--muted);
 }
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.head-actions .btn {
+  padding: 3px 8px;
+  font-size: 11px;
+}
 .hint {
   font-size: 11px;
   color: var(--muted);
 }
+
+.tabbar {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px 8px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+  overflow-x: auto;
+}
+.tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+}
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7.5px 8px;
+  max-width: 200px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: background 0.12s, color 0.12s;
+}
+.tab:hover { color: var(--text); }
+.tab.active {
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--accent);
+  border-bottom: 1px solid var(--panel);
+  margin-bottom: -1px;
+}
+.tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+.tab-close {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.tab-close:hover { color: var(--danger); background: rgba(224, 108, 117, 0.12); }
+.tab-lock {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.45;
+  filter: grayscale(1);
+}
+.tab-lock:hover { opacity: 0.9; }
+.tab-lock.on { opacity: 1; filter: none; }
+.tab.locked {
+  border-style: dashed;
+  border-color: var(--ok);
+}
+.tab.locked.active { border-color: var(--ok); }
+.tab[draggable="true"] { cursor: grab; }
+.tab.dragging { opacity: 0.4; }
+/* Inset shadow marks the slot the dragged tab will drop into (no reflow). */
+.tab.drag-over { box-shadow: inset 3px 0 0 var(--accent); }
+.tab-add {
+  flex: 0 0 auto;
+  align-self: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 5px;
+  width: 26px;
+  height: 26px;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tab-add:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.tab-add:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .notes textarea {
   flex: 1;
@@ -208,6 +312,15 @@ html, body {
 }
 .btn:hover { color: var(--text); border-color: var(--muted); }
 .btn.danger:hover { color: var(--danger); border-color: var(--danger); }
+.btn.locked { color: var(--ok); border-color: var(--ok); }
+
+.file-row.locked {
+  background: rgba(152, 195, 121, 0.06);
+}
+.file-row.locked .fname::after {
+  content: " 🔒";
+  font-size: 11px;
+}
 
 .empty {
   padding: 18px 6px;
