@@ -5,6 +5,8 @@ that everyone on the network sees and edits in near-real-time, plus a
 drag-and-drop area for sharing files and images. No accounts, no logins — just
 a URL.
 
+![lanpad — tabbed notepad with file sharing and lockable tabs/files](docs/screenshot.png)
+
 - **Stack:** Flask 3 + gunicorn, vanilla HTML/CSS/JS (no build step)
 - **Default port:** `7777` on the host → `8080` in the container
 - **Data:** `./data` on the host, mounted to `/data`
